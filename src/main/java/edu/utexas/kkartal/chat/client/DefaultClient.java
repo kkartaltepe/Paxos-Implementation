@@ -1,12 +1,10 @@
 package edu.utexas.kkartal.chat.client;
 
 import edu.utexas.kkartal.chat.shared.ChatMessage;
-import edu.utexas.kkartal.chat.shared.PaxosMessage;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationInputStream;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStream;
 
 import java.io.*;
-import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;

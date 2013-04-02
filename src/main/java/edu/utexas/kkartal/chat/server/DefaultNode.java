@@ -1,7 +1,7 @@
 package edu.utexas.kkartal.chat.server;
 
 import edu.utexas.kkartal.chat.shared.ChatMessage;
-import edu.utexas.kkartal.chat.shared.PaxosMessage;
+import edu.utexas.kkartal.chat.shared.DefaultPaxosMessage;
 import org.apache.mina.filter.codec.ProtocolCodecFilter;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationCodecFactory;
 import org.apache.mina.filter.logging.LoggingFilter;
@@ -29,7 +29,7 @@ public class DefaultNode {
     DatagramSocket socket;
 
     int preparedFor = 0;
-    List<PaxosMessage<ChatMessage>> acceptedProposals;
+    List<DefaultPaxosMessage<ChatMessage>> acceptedProposals;
 
     public static void main(String[] args) {
         NioDatagramAcceptor acceptor = new NioDatagramAcceptor();
@@ -54,7 +54,7 @@ public class DefaultNode {
         if(args.length < 2){
             System.out.println("Please provide two arguements <port range> <serverNum starting at 0>");
         }
-        acceptedProposals = new ArrayList<PaxosMessage<ChatMessage>>();
+        acceptedProposals = new ArrayList<DefaultPaxosMessage<ChatMessage>>();
         String[] portRange = args[0].split("-");
         firstPort = Integer.parseInt(portRange[0]);
         numServers = Integer.parseInt(portRange[1]) - Integer.parseInt(portRange[0]);

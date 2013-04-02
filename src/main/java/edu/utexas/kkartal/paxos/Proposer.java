@@ -1,7 +1,5 @@
 package edu.utexas.kkartal.paxos;
 
-import java.util.List;
-
 /**
  * Created with IntelliJ IDEA.
  * User: kurt
@@ -9,25 +7,22 @@ import java.util.List;
  * Time: 12:41 PM
  * To change this template use File | Settings | File Templates.
  */
-public interface Proposer<T extends Proposal> {
+public interface Proposer<T extends PaxosMessage> {
     /**
      * Send a prepare to a quorum of acceptors for the given proposal
-     * @param prepareNum
-     * @param quorum
+     * @param prepareRequest
      */
-    void prepareFor(int prepareNum, List<Participant> quorum);
+    void handlePrepare(T prepareRequest);
 
     /**
      * Handle getting a response from an accepter after sending a prepare
      * @param response
-     * @param responder
      */
-    void handlePrepareResponse(T response, Participant responder);
+    void handlePrepareResponse(T response);
 
     /**
      * Send a proposal to a quorum of participants.
      * @param proposal
-     * @param quorum
      */
-    void propose(T proposal, List<Participant> quorum);
+    void propose(T proposal);
 }

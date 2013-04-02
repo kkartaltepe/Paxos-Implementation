@@ -9,7 +9,10 @@ import java.io.Serializable;
  * Time: 1:50 AM
  * To change this template use File | Settings | File Templates.
  */
-public interface Proposal<T extends Serializable> extends Serializable {
-    int getId();
+public interface PaxosMessage<T extends Serializable> extends Serializable {
+    int getProposeNum();
+    short getProposerId();
+    int getInstanceNum();
+    PaxosMessageType getType();
     T getValue();
 }

@@ -7,16 +7,11 @@ package edu.utexas.kkartal.paxos;
  * Time: 12:41 PM
  * To change this template use File | Settings | File Templates.
  */
-public interface Learner<T extends Proposal> {
+public interface Learner<T extends PaxosMessage> {
     /**
      * Handle an acceptor informing you of its acceptance of a proposal
      * @param proposal
      */
-    void handleAccepted(T proposal, Participant acceptor);
+    void handleAccepted(T proposal);
 
-    /**
-     * Handle someone asking if something was chosen
-     * @param requester
-     */
-    void handleQuery(Participant requester);
 }

@@ -1,16 +1,10 @@
 package edu.utexas.kkartal.chat.server;
 
 import edu.utexas.kkartal.chat.shared.ChatMessage;
-import edu.utexas.kkartal.chat.shared.PaxosMessage;
-import edu.utexas.kkartal.paxos.Acceptor;
-import edu.utexas.kkartal.paxos.Learner;
-import edu.utexas.kkartal.paxos.Participant;
-import edu.utexas.kkartal.paxos.Proposer;
+import edu.utexas.kkartal.chat.shared.DefaultPaxosMessage;
+import edu.utexas.kkartal.paxos.*;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IoSession;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Created with IntelliJ IDEA.
@@ -20,52 +14,86 @@ import java.util.List;
  * To change this template use File | Settings | File Templates.
  */
 public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<PaxosMessage>,Learner<PaxosMessage>,Proposer<PaxosMessage> {
+    //Proposer info
+    private short id;
+    private int nextPropose = 0;
+    private boolean leader = true; //TODO: change this when leader should change
+
+    //Acceptor info
     private int preparedFor = 0;
+    private int nextInstance = 0;
+
+    //Learner info
+
+    PaxosServerHandler(short id) {
+        this.id = id;
+    }
 
     public void exceptionCaught(IoSession ioSession, Throwable throwable) throws Exception {
         throwable.printStackTrace();
     }
 
-    public void messageReceived(IoSession ioSession, Object o) throws Exception {
-        if(!(o instanceof PaxosMessage) && !(o instanceof ChatMessage)) {
-            throw new Exception("Received bad message (" + o.getClass().getSimpleName() + ")");
+    public void messageReceived(IoSession ioSession, Object message) throws Exception {
+        if(message instanceof DefaultPaxosMessage) {
+            PaxosMessage paxosMessage = (DefaultPaxosMessage) message;
+            switch(paxosMessage.getType()){
+                case PROPOSE:
+                    handlePropose(paxosMessage);
+                case ACCEPTED:
+                    handleAccepted(paxosMessage);
+                case PREPARE:
+                    handlePrepare(paxosMessage);
+                case PREPARE_RESP:
+                    handlePrepareResponse(paxosMessage);
+                default:
+                    throw new Exception("received PaxosMessage of unknown type" + paxosMessage.getType().name());
+            }
+        } else if(message instanceof ChatMessage) { //Only clients should be sending ChatMessages
+            if(leader){
+                propose(new DefaultPaxosMessage(nextInstance,
+                        nextPropose,
+                        id,
+                        PaxosMessageType.PROPOSE,
+                        (ChatMessage)message));
+                nextInstance++;
+                nextPropose++;
+            } else {
+                //TODO: forward to leader
+            }
+        } else {
+            throw new Exception("Unknown message type:" + message.getClass().getSimpleName());
         }
-        //TODO: do paxos stuff
-        ioSession.write(o);
     }
 
-    public void handlePrepare(int prepareNum, Participant requester) {
-        if(preparedFor > prepareNum) {
+    public void handlePrepare(PaxosMessage paxosMessage) {
+        if(preparedFor > paxosMessage.getProposeNum()) {
             return;
         }
-        preparedFor = prepareNum;
-        List<ChatMessage> messages = new ArrayList<ChatMessage>();
+        preparedFor = paxosMessage.getProposeNum();
+        //TODO: send response
     }
 
-    public void handleAccept(PaxosMessage proposal, Participant requester) {
+    public void handlePrepare(int prepareNum) {
+
+    }
+
+    @Override
+    public void handlePropose(PaxosMessage proposal) {
         //To change body of implemented methods use File | Settings | File Templates.
     }
 
-    public void handleAccepted(PaxosMessage proposal, Participant acceptor) {
+    @Override
+    public void handleAccepted(PaxosMessage proposal) {
         //To change body of implemented methods use File | Settings | File Templates.
     }
 
-    public void handleQuery(Participant requester) {
+    @Override
+    public void handlePrepareResponse(PaxosMessage response) {
         //To change body of implemented methods use File | Settings | File Templates.
     }
 
-    public void prepareFor(int prepareNum, List<Participant> quorum) {
-        for(Participant participant : quorum) {
-            ChatMessage prepMsg = null;
-            participant.send(prepMsg);
-        }
-    }
-
-    public void handlePrepareResponse(PaxosMessage response, Participant responder) {
-        //To change body of implemented methods use File | Settings | File Templates.
-    }
-
-    public void propose(PaxosMessage proposal, List<Participant> quorum) {
+    @Override
+    public void propose(PaxosMessage proposal) {
         //To change body of implemented methods use File | Settings | File Templates.
     }
 }
