@@ -10,11 +10,13 @@ package edu.utexas.kkartal.paxos;
 public interface Acceptor<T extends PaxosMessage> {
     /**
      * Deal with a promise request from a proposer
+     *
      * @param prepareNum
+     * @param proposerId
      * @return  If the requested prepare is higher than the previous we respond with all previously accepted proposals
      * otherwise we ignore the proposer.
      */
-    void handlePrepare(int prepareNum);
+    void handlePrepare(int prepareNum, short proposerId);
 
     /**
      * Handle an accept request from requester

@@ -5,6 +5,16 @@ import edu.utexas.kkartal.chat.shared.DefaultPaxosMessage;
 import edu.utexas.kkartal.paxos.*;
 import org.apache.mina.core.service.IoHandlerAdapter;
 import org.apache.mina.core.session.IoSession;
+import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStream;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Created with IntelliJ IDEA.
@@ -17,16 +27,32 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
     //Proposer info
     private short id;
     private int nextPropose = 0;
+    private int nextInstance = 0;
     private boolean leader = true; //TODO: change this when leader should change
 
     //Acceptor info
     private int preparedFor = 0;
-    private int nextInstance = 0;
+    private ArrayList<ChatMessage> accepted = new ArrayList<ChatMessage>(10);
 
     //Learner info
+    private ArrayList<ChatMessage> chosen = new ArrayList<ChatMessage>(10);
+    private Map<Integer, Integer> proposalAcceptedVotes = new HashMap<Integer, Integer>();
 
-    PaxosServerHandler(short id) {
+    //To allow for sending packets
+    private DatagramChannel channel;
+    private ServerSet serverSet;
+
+    /**
+     * Create a new server handler
+     * @param id
+     * @param servers
+     * @param channel
+     */
+    PaxosServerHandler(short id, ServerSet servers, DatagramChannel channel) throws IOException {
         this.id = id;
+        this.channel = channel;
+        this.serverSet = servers;
+        channel.configureBlocking(false);
     }
 
     public void exceptionCaught(IoSession ioSession, Throwable throwable) throws Exception {
@@ -38,13 +64,21 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             PaxosMessage paxosMessage = (DefaultPaxosMessage) message;
             switch(paxosMessage.getType()){
                 case PROPOSE:
+                    System.out.println("handling propose");
                     handlePropose(paxosMessage);
+                    break;
                 case ACCEPTED:
+                    System.out.println("handling accepted");
                     handleAccepted(paxosMessage);
+                    break;
                 case PREPARE:
-                    handlePrepare(paxosMessage);
+                    System.out.println("handling prepare");
+                    handlePrepare((Integer) paxosMessage.getValue(), paxosMessage.getProposerId()); //PSN and consensus instance dont matter
+                    break;
                 case PREPARE_RESP:
+                    System.out.println("handling prepare response");
                     handlePrepareResponse(paxosMessage);
+                    break;
                 default:
                     throw new Exception("received PaxosMessage of unknown type" + paxosMessage.getType().name());
             }
@@ -65,35 +99,71 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
     }
 
-    public void handlePrepare(PaxosMessage paxosMessage) {
-        if(preparedFor > paxosMessage.getProposeNum()) {
+    @Override
+    public void handlePrepare(int prepareNum, short proposerId) {
+        if(preparedFor > prepareNum) {
             return;
         }
-        preparedFor = paxosMessage.getProposeNum();
+        preparedFor = prepareNum;
         //TODO: send response
-    }
-
-    public void handlePrepare(int prepareNum) {
-
+        PaxosMessage message = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE_RESP, accepted);
+        sendMessage(message, id);
     }
 
     @Override
     public void handlePropose(PaxosMessage proposal) {
-        //To change body of implemented methods use File | Settings | File Templates.
+        if(preparedFor > proposal.getProposeNum())
+            return;
+        accepted.ensureCapacity(proposal.getInstanceNum());
+        accepted.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
+        //Send accept to all
+        sendAllMessage(new DefaultPaxosMessage(proposal.getInstanceNum(),
+                                               proposal.getProposeNum(),
+                                               proposal.getProposerId(),
+                                               PaxosMessageType.ACCEPTED,
+                                               proposal.getValue()));
     }
 
     @Override
     public void handleAccepted(PaxosMessage proposal) {
-        //To change body of implemented methods use File | Settings | File Templates.
+       Integer timesAccepted = proposalAcceptedVotes.get(proposal.getProposeNum());
+        if (timesAccepted != null) {
+            proposalAcceptedVotes.put(proposal.getProposeNum(), timesAccepted++);
+        } else {
+            proposalAcceptedVotes.put(proposal.getProposeNum(), 1);
+        }
+        //Send to all clients
+
+
     }
 
     @Override
     public void handlePrepareResponse(PaxosMessage response) {
-        //To change body of implemented methods use File | Settings | File Templates.
+        List<ChatMessage> accepted = (List<ChatMessage>) response.getValue();
     }
 
     @Override
     public void propose(PaxosMessage proposal) {
-        //To change body of implemented methods use File | Settings | File Templates.
+        sendAllMessage(proposal);
+    }
+
+    private void sendAllMessage(PaxosMessage message) {
+        for(short i = 0; i < serverSet.getNumServers(); i++) {
+            sendMessage(message, i);
+        }
+    }
+
+    private void sendMessage(PaxosMessage message, short serverId) {
+        try {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);
+            objectOutputStream.writeObject(message);
+            objectOutputStream.flush();
+            ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
+            channel.send(payload, serverSet.getServer(serverId));
+        } catch (IOException e) {
+            System.out.println("Failed to send message");
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
     }
 }

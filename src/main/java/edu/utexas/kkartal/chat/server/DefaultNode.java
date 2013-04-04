@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
+import java.nio.channels.DatagramChannel;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,21 +24,24 @@ import java.util.List;
  * To change this template use File | Settings | File Templates.
  */
 public class DefaultNode {
-    int port;
-    int numServers;
-    int firstPort;
-    DatagramSocket socket;
-
-    int preparedFor = 0;
-    List<DefaultPaxosMessage<ChatMessage>> acceptedProposals;
 
     public static void main(String[] args) {
+        if(args.length < 3)
+            System.out.println("java [id] [startPort] [numServers]");
+        ServerSet servers = new ServerSet(Short.parseShort(args[1]), Short.parseShort(args[2]));
+
         NioDatagramAcceptor acceptor = new NioDatagramAcceptor();
 
-        acceptor.getFilterChain().addLast( "logger", new LoggingFilter() );
+        acceptor.getFilterChain().addLast("logger", new LoggingFilter());
         acceptor.getFilterChain().addFirst("object-serializer", new ProtocolCodecFilter(new ObjectSerializationCodecFactory(ClassLoader.getSystemClassLoader())));
 
-        acceptor.setHandler(new PaxosServerHandler());
+        try {
+            acceptor.setHandler(new PaxosServerHandler(Short.parseShort(args[0]), servers, DatagramChannel.open()));
+        } catch (IOException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            System.out.println("Couldnt configure nonblocking UDP channel");
+            System.exit(1);
+        }
 
         DatagramSessionConfig config = acceptor.getSessionConfig();
         config.setReuseAddress(true);
@@ -48,22 +52,5 @@ public class DefaultNode {
             System.exit(1);
         }
         System.out.println("Node started");
-    }
-
-    public void run(String[] args) {
-        if(args.length < 2){
-            System.out.println("Please provide two arguements <port range> <serverNum starting at 0>");
-        }
-        acceptedProposals = new ArrayList<DefaultPaxosMessage<ChatMessage>>();
-        String[] portRange = args[0].split("-");
-        firstPort = Integer.parseInt(portRange[0]);
-        numServers = Integer.parseInt(portRange[1]) - Integer.parseInt(portRange[0]);
-        port = Integer.parseInt(args[1]) + firstPort;
-
-        try {
-            socket = new DatagramSocket(port);
-        } catch (SocketException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        }
     }
 }

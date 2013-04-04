@@ -8,11 +8,6 @@ package edu.utexas.kkartal.paxos;
  * To change this template use File | Settings | File Templates.
  */
 public interface Proposer<T extends PaxosMessage> {
-    /**
-     * Send a prepare to a quorum of acceptors for the given proposal
-     * @param prepareRequest
-     */
-    void handlePrepare(T prepareRequest);
 
     /**
      * Handle getting a response from an accepter after sending a prepare

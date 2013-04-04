@@ -4,7 +4,9 @@ import edu.utexas.kkartal.chat.shared.ChatMessage;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationInputStream;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStream;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
