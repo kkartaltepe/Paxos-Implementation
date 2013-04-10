@@ -34,4 +34,8 @@ public class ChatMessage implements Serializable {
         return time;
     }
 
+    public String toString() {
+        return "[" + time.toString() + "]" + name + ":" + body;
+    }
+
 }

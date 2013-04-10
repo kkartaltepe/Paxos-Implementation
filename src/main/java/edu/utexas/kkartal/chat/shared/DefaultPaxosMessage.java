@@ -47,4 +47,8 @@ public class DefaultPaxosMessage<T extends Serializable> implements PaxosMessage
     public T getValue() {
         return value;
     }
+
+    public String toString() {
+        return "[" + instanceNum + "," + proposeNum + "]" + type.toString();
+    }
 }

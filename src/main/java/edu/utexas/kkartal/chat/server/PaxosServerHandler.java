@@ -9,6 +9,8 @@ import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStrea
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.ArrayList;
@@ -64,19 +66,19 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             PaxosMessage paxosMessage = (DefaultPaxosMessage) message;
             switch(paxosMessage.getType()){
                 case PROPOSE:
-                    System.out.println("handling propose");
+//                    System.out.println("handling propose");
                     handlePropose(paxosMessage);
                     break;
                 case ACCEPTED:
-                    System.out.println("handling accepted");
+//                    System.out.println("handling accepted");
                     handleAccepted(paxosMessage);
                     break;
                 case PREPARE:
-                    System.out.println("handling prepare");
+//                    System.out.println("handling prepare");
                     handlePrepare((Integer) paxosMessage.getValue(), paxosMessage.getProposerId()); //PSN and consensus instance dont matter
                     break;
                 case PREPARE_RESP:
-                    System.out.println("handling prepare response");
+//                    System.out.println("handling prepare response");
                     handlePrepareResponse(paxosMessage);
                     break;
                 default:
@@ -90,13 +92,17 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                         PaxosMessageType.PROPOSE,
                         (ChatMessage)message));
                 nextInstance++;
-                nextPropose++;
+//                nextPropose++;
             } else {
-                //TODO: forward to leader
+                sendToLeader((ChatMessage) message);
             }
         } else {
             throw new Exception("Unknown message type:" + message.getClass().getSimpleName());
         }
+    }
+
+    private void sendToLeader(ChatMessage message) {
+
     }
 
     @Override
@@ -105,7 +111,6 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             return;
         }
         preparedFor = prepareNum;
-        //TODO: send response
         PaxosMessage message = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE_RESP, accepted);
         sendMessage(message, id);
     }
@@ -126,20 +131,38 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
 
     @Override
     public void handleAccepted(PaxosMessage proposal) {
-       Integer timesAccepted = proposalAcceptedVotes.get(proposal.getProposeNum());
+       Integer timesAccepted = proposalAcceptedVotes.get(proposal.getInstanceNum());
         if (timesAccepted != null) {
-            proposalAcceptedVotes.put(proposal.getProposeNum(), timesAccepted++);
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), timesAccepted++);
         } else {
-            proposalAcceptedVotes.put(proposal.getProposeNum(), 1);
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), 1);
         }
         //Send to all clients
+        if(proposalAcceptedVotes.get(proposal.getInstanceNum()) > serverSet.getNumServers()/2) {
+            //It has been chosen.
+            chosen.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
+            sendToClients((ChatMessage) proposal.getValue());
+        }
 
 
     }
 
     @Override
     public void handlePrepareResponse(PaxosMessage response) {
-        List<ChatMessage> accepted = (List<ChatMessage>) response.getValue();
+        // This is a list of chat messages that the acceptor has accepted for a given instance of Paxos.
+        if((response.getValue() instanceof List))
+            throw new RuntimeException("Bad PrepareResponse data");
+
+        List<ChatMessage> remoteAccepted = (List<ChatMessage>) response.getValue();
+        for(int i = 0; i < remoteAccepted.size(); i++) {
+            if(chosen.size() > i && chosen.get(i) != null)
+                continue;
+            if(remoteAccepted.get(i) != null) {
+                propose(new DefaultPaxosMessage(i, nextPropose, id, PaxosMessageType.PROPOSE, remoteAccepted.get(i)));
+                if(i > nextInstance)
+                    nextInstance = i;
+            }
+        }
     }
 
     @Override
@@ -161,6 +184,20 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             objectOutputStream.flush();
             ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
             channel.send(payload, serverSet.getServer(serverId));
+        } catch (IOException e) {
+            System.out.println("Failed to send message");
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
+    }
+
+    private void sendToClients(ChatMessage message) {
+        try {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);
+            objectOutputStream.writeObject(message);
+            objectOutputStream.flush();
+            ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
+            channel.send(payload, new InetSocketAddress("233.233.233.233", 2666)); //Special mutlicast for clients
         } catch (IOException e) {
             System.out.println("Failed to send message");
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
