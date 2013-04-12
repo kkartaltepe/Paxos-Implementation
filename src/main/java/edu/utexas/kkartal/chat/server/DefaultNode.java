@@ -28,7 +28,10 @@ public class DefaultNode {
     public static void main(String[] args) {
         if(args.length < 3)
             System.out.println("java [id] [startPort] [numServers]");
-        ServerSet servers = new ServerSet(Short.parseShort(args[1]), Short.parseShort(args[2]));
+        short id = Short.parseShort(args[0]);
+        short startPort = Short.parseShort(args[1]);
+        short numServers = Short.parseShort(args[2]);
+        ServerSet servers = new ServerSet(startPort, numServers);
 
         NioDatagramAcceptor acceptor = new NioDatagramAcceptor();
 
@@ -36,7 +39,7 @@ public class DefaultNode {
         acceptor.getFilterChain().addFirst("object-serializer", new ProtocolCodecFilter(new ObjectSerializationCodecFactory(ClassLoader.getSystemClassLoader())));
 
         try {
-            acceptor.setHandler(new PaxosServerHandler(Short.parseShort(args[0]), servers, DatagramChannel.open()));
+            acceptor.setHandler(new PaxosServerHandler(id, servers, DatagramChannel.open()));
         } catch (IOException e) {
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             System.out.println("Couldnt configure nonblocking UDP channel");
@@ -46,11 +49,11 @@ public class DefaultNode {
         DatagramSessionConfig config = acceptor.getSessionConfig();
         config.setReuseAddress(true);
         try {
-            acceptor.bind(new InetSocketAddress(2777));
+            acceptor.bind(servers.getServer(id));
+            System.out.println("Server started on " + servers.getServer(id));
         } catch (IOException e) {
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             System.exit(1);
         }
-        System.out.println("Node started");
     }
 }

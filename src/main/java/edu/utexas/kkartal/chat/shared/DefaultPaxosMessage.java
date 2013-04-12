@@ -49,6 +49,6 @@ public class DefaultPaxosMessage<T extends Serializable> implements PaxosMessage
     }
 
     public String toString() {
-        return "[" + instanceNum + "," + proposeNum + "]" + type.toString();
+        return "[" + instanceNum + "," + proposeNum + "]" + type.toString() + " from " + proposerId;
     }
 }

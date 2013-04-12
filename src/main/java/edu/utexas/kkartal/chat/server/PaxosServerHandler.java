@@ -9,6 +9,7 @@ import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStrea
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -55,6 +56,11 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         this.channel = channel;
         this.serverSet = servers;
         channel.configureBlocking(false);
+        if(id == 1) {
+            preparedFor = 1;
+            nextPropose = 1;
+            sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE, 1));
+        }
     }
 
     public void exceptionCaught(IoSession ioSession, Throwable throwable) throws Exception {
@@ -85,7 +91,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                     throw new Exception("received PaxosMessage of unknown type" + paxosMessage.getType().name());
             }
         } else if(message instanceof ChatMessage) { //Only clients should be sending ChatMessages
-            if(leader){
+            if(id == getLeader()){
                 propose(new DefaultPaxosMessage(nextInstance,
                         nextPropose,
                         id,
@@ -101,9 +107,6 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
     }
 
-    private void sendToLeader(ChatMessage message) {
-
-    }
 
     @Override
     public void handlePrepare(int prepareNum, short proposerId) {
@@ -112,46 +115,14 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
         preparedFor = prepareNum;
         PaxosMessage message = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE_RESP, accepted);
-        sendMessage(message, id);
-    }
-
-    @Override
-    public void handlePropose(PaxosMessage proposal) {
-        if(preparedFor > proposal.getProposeNum())
-            return;
-        accepted.ensureCapacity(proposal.getInstanceNum());
-        accepted.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
-        //Send accept to all
-        sendAllMessage(new DefaultPaxosMessage(proposal.getInstanceNum(),
-                                               proposal.getProposeNum(),
-                                               proposal.getProposerId(),
-                                               PaxosMessageType.ACCEPTED,
-                                               proposal.getValue()));
-    }
-
-    @Override
-    public void handleAccepted(PaxosMessage proposal) {
-       Integer timesAccepted = proposalAcceptedVotes.get(proposal.getInstanceNum());
-        if (timesAccepted != null) {
-            proposalAcceptedVotes.put(proposal.getInstanceNum(), timesAccepted++);
-        } else {
-            proposalAcceptedVotes.put(proposal.getInstanceNum(), 1);
-        }
-        //Send to all clients
-        if(proposalAcceptedVotes.get(proposal.getInstanceNum()) > serverSet.getNumServers()/2) {
-            //It has been chosen.
-            chosen.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
-            sendToClients((ChatMessage) proposal.getValue());
-        }
-
-
+        sendToLeader(message);
     }
 
     @Override
     public void handlePrepareResponse(PaxosMessage response) {
         // This is a list of chat messages that the acceptor has accepted for a given instance of Paxos.
-        if((response.getValue() instanceof List))
-            throw new RuntimeException("Bad PrepareResponse data");
+        //if((response.getValue() instanceof ArrayList))
+        //    throw new RuntimeException("Bad PrepareResponse data, was expecting list but got " + response.getValue().getClass());
 
         List<ChatMessage> remoteAccepted = (List<ChatMessage>) response.getValue();
         for(int i = 0; i < remoteAccepted.size(); i++) {
@@ -166,17 +137,61 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
     }
 
     @Override
+    public void handlePropose(PaxosMessage proposal) {
+        if(preparedFor > proposal.getProposeNum())
+            return;
+        while(accepted.size() <= proposal.getInstanceNum()){
+            accepted.add(null);
+            chosen.add(null);
+        }
+        accepted.set(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
+        //Send accept to all
+        sendAllMessage(new DefaultPaxosMessage(proposal.getInstanceNum(),
+                                               proposal.getProposeNum(),
+                                               id,
+                                               PaxosMessageType.ACCEPTED,
+                                               proposal.getValue()));
+    }
+
+    @Override
+    public void handleAccepted(PaxosMessage proposal) {
+        Integer timesAccepted = proposalAcceptedVotes.get(proposal.getInstanceNum());
+        if (timesAccepted != null) {
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), ++timesAccepted);
+        } else {
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), 1);
+        }
+        //Send to all clients
+        if(proposalAcceptedVotes.get(proposal.getInstanceNum()) > serverSet.getNumServers()/2) {
+            //It has been chosen.
+            chosen.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
+            if(id == getLeader())
+                sendToClients((ChatMessage) proposal.getValue());
+        }
+
+
+    }
+
+    @Override
     public void propose(PaxosMessage proposal) {
         sendAllMessage(proposal);
     }
 
     private void sendAllMessage(PaxosMessage message) {
-        for(short i = 0; i < serverSet.getNumServers(); i++) {
+        for(short i = 1; i < serverSet.getNumServers()+1; i++) {
             sendMessage(message, i);
         }
     }
 
-    private void sendMessage(PaxosMessage message, short serverId) {
+    private short getLeader() {
+        return 1;
+    }
+
+    private void sendToLeader(Serializable message) {
+        sendMessage(message, getLeader());
+    }
+
+    private void sendMessage(Serializable message, short serverId) {
         try {
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);
