@@ -27,9 +27,9 @@ public class ServerSet {
      * @return
      */
     InetSocketAddress getServer(int serverId) {
-        if(serverId > numServers || serverId < 1)
-            throw new RuntimeException("Id out of range");
-        return new InetSocketAddress(hostname, startPort+serverId-1);
+        if(serverId > numServers || serverId < 0)
+            throw new RuntimeException("Id out of range, " + serverId + " not in [" + 0 + "," + (numServers-1) +"]");
+        return new InetSocketAddress(hostname, startPort+serverId);
     }
 
     /**

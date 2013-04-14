@@ -14,10 +14,10 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created with IntelliJ IDEA.
@@ -29,21 +29,24 @@ import java.util.Map;
 public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<PaxosMessage>,Learner<PaxosMessage>,Proposer<PaxosMessage> {
     //Proposer info
     private short id;
-    private int nextPropose = 0;
+    private int nextPropose = 1;
     private int nextInstance = 0;
-    private boolean leader = true; //TODO: change this when leader should change
 
     //Acceptor info
-    private int preparedFor = 0;
+    private int preparedFor = 1;
     private ArrayList<ChatMessage> accepted = new ArrayList<ChatMessage>(10);
 
     //Learner info
     private ArrayList<ChatMessage> chosen = new ArrayList<ChatMessage>(10);
-    private Map<Integer, Integer> proposalAcceptedVotes = new HashMap<Integer, Integer>();
+    private int lastSent = -1; //Havnt sent anything
+    private Map<Integer, List<PaxosMessage>> proposalAcceptedVotes = new HashMap<Integer, List<PaxosMessage>>();
 
     //To allow for sending packets
     private DatagramChannel channel;
     private ServerSet serverSet;
+    private final ScheduledExecutorService scheduler =
+            Executors.newScheduledThreadPool(100); //Handle waiting for at most 100 proposals to be chosen eventually.
+    private Date leaderLastHeard;
 
     /**
      * Create a new server handler
@@ -51,16 +54,34 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
      * @param servers
      * @param channel
      */
-    PaxosServerHandler(short id, ServerSet servers, DatagramChannel channel) throws IOException {
+    PaxosServerHandler(final short id, final ServerSet servers, DatagramChannel channel) throws IOException {
         this.id = id;
         this.channel = channel;
         this.serverSet = servers;
+        this.leaderLastHeard = new Date(); //Now.
         channel.configureBlocking(false);
-        if(id == 1) {
-            preparedFor = 1;
-            nextPropose = 1;
-            sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE, 1));
-        }
+        /**
+         * Set up the check for check for leader being alive.
+         */
+        scheduler.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                Calendar timeForMeToBeLeader = new GregorianCalendar();
+                int remainder = preparedFor%servers.getNumServers();
+                int turnsTillLeader =  id < remainder ? id-remainder+serverSet.getNumServers() : id-remainder;
+                timeForMeToBeLeader.add(Calendar.SECOND, -6*turnsTillLeader);
+                if(timeForMeToBeLeader.getTime().after(leaderLastHeard) && id != getLeader()) {  //Enough time that I should be leader now.
+                    System.out.println("Trying to become leader with " + (preparedFor+turnsTillLeader));
+                    sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE, preparedFor+turnsTillLeader));
+                }
+                if(id == getLeader()) //Send everyone heartbeats
+                    sendHeartBeat();
+            }
+        }, 0, 2, TimeUnit.SECONDS);
+    }
+
+    private void sendHeartBeat() {
+            sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PING, preparedFor));
     }
 
     public void exceptionCaught(IoSession ioSession, Throwable throwable) throws Exception {
@@ -72,25 +93,29 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             PaxosMessage paxosMessage = (DefaultPaxosMessage) message;
             switch(paxosMessage.getType()){
                 case PROPOSE:
-//                    System.out.println("handling propose");
                     handlePropose(paxosMessage);
                     break;
                 case ACCEPTED:
-//                    System.out.println("handling accepted");
                     handleAccepted(paxosMessage);
                     break;
                 case PREPARE:
-//                    System.out.println("handling prepare");
                     handlePrepare((Integer) paxosMessage.getValue(), paxosMessage.getProposerId()); //PSN and consensus instance dont matter
                     break;
                 case PREPARE_RESP:
-//                    System.out.println("handling prepare response");
                     handlePrepareResponse(paxosMessage);
+                    break;
+                case PING:
+                    if(paxosMessage.getProposerId() == getLeader()) //Leaders HeartBeat
+                        leaderLastHeard = new Date();
+                    else if(((Integer)paxosMessage.getValue()) > preparedFor) { //A new leader is informing everyone of his existance
+                        System.out.println("Ping informed me of new leader " + paxosMessage.getValue());
+                        preparedFor = ((Integer)paxosMessage.getValue());
+                    }
                     break;
                 default:
                     throw new Exception("received PaxosMessage of unknown type" + paxosMessage.getType().name());
             }
-        } else if(message instanceof ChatMessage) { //Only clients should be sending ChatMessages
+        } else if(message instanceof ChatMessage) { //Some client sent or some server forwarded.
             if(id == getLeader()){
                 propose(new DefaultPaxosMessage(nextInstance,
                         nextPropose,
@@ -98,7 +123,6 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                         PaxosMessageType.PROPOSE,
                         (ChatMessage)message));
                 nextInstance++;
-//                nextPropose++;
             } else {
                 sendToLeader((ChatMessage) message);
             }
@@ -114,6 +138,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             return;
         }
         preparedFor = prepareNum;
+        nextPropose = preparedFor;
         PaxosMessage message = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE_RESP, accepted);
         sendToLeader(message);
     }
@@ -141,6 +166,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         if(preparedFor > proposal.getProposeNum())
             return;
         while(accepted.size() <= proposal.getInstanceNum()){
+            System.out.println("Adding to chosen.");
             accepted.add(null);
             chosen.add(null);
         }
@@ -155,36 +181,84 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
 
     @Override
     public void handleAccepted(PaxosMessage proposal) {
-        Integer timesAccepted = proposalAcceptedVotes.get(proposal.getInstanceNum());
-        if (timesAccepted != null) {
-            proposalAcceptedVotes.put(proposal.getInstanceNum(), ++timesAccepted);
+        while(chosen.size() < proposal.getInstanceNum()+1){   //Prevent NPE from accept before proposal.
+            chosen.add(null);
+        }
+        if(chosen.get(proposal.getInstanceNum()) != null)
+            return; //Something has already been chosen so I dont care anymore.
+
+        List<PaxosMessage> acceptedVotes = proposalAcceptedVotes.get(proposal.getInstanceNum());
+        if (acceptedVotes == null) {
+            acceptedVotes = new ArrayList<PaxosMessage>();
+            acceptedVotes.add(proposal);
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), acceptedVotes);
         } else {
-            proposalAcceptedVotes.put(proposal.getInstanceNum(), 1);
+            for(PaxosMessage acceptedVote : acceptedVotes){
+                if(proposal.getProposerId() == acceptedVote.getProposerId())
+                    return;     //This person is reaffirming their acceptance of this instances proposal.
+            }
+            acceptedVotes.add(proposal);
+            proposalAcceptedVotes.put(proposal.getInstanceNum(), acceptedVotes);
         }
-        //Send to all clients
-        if(proposalAcceptedVotes.get(proposal.getInstanceNum()) > serverSet.getNumServers()/2) {
-            //It has been chosen.
-            chosen.add(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
-            if(id == getLeader())
-                sendToClients((ChatMessage) proposal.getValue());
+        //handle being chosen
+        if(proposalAcceptedVotes.get(proposal.getInstanceNum()).size() > serverSet.getNumServers()/2) {
+            onChosen(proposal);
         }
 
+        //TODO: Maybe handle different proposal numbers happeneing "simulataneously"
+    }
 
+    /**
+     * Work through the chosen messages sending what we have left and
+     * stopping once we get to an unfilled slot or the end of the array.
+     */
+    private void onChosen(PaxosMessage proposal) {
+        chosen.set(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
+        if(proposal.getInstanceNum() >= nextInstance)
+            nextInstance = proposal.getInstanceNum()+1;
+
+        while(lastSent+1 < chosen.size()) {
+            ChatMessage toSend = chosen.get(lastSent+1);
+            if(toSend != null) {
+                if(id == getLeader())
+                    sendToClients(toSend);
+                lastSent++;
+            } else {
+                break; //There is still a missing slot.
+            }
+        }
     }
 
     @Override
-    public void propose(PaxosMessage proposal) {
+    public void propose(final PaxosMessage proposal) {
         sendAllMessage(proposal);
+        Runnable rePropose = new Runnable(){
+            @Override
+            public void run() {
+                long timeToSleep = 1000;
+                while(chosen.get(proposal.getInstanceNum()) == null){
+                    try {
+                        Thread.sleep(timeToSleep);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    sendAllMessage(proposal);
+                    timeToSleep = timeToSleep*2 < 60*1000 ? timeToSleep*2 : 60*1000;   //Increase wait time up to a minute (helps prevent spamming in the logs >.>)
+                }
+                System.out.println("Chose: " + proposal);
+            }
+        };
+        scheduler.schedule(rePropose, 1, TimeUnit.SECONDS);
     }
 
     private void sendAllMessage(PaxosMessage message) {
-        for(short i = 1; i < serverSet.getNumServers()+1; i++) {
+        for(short i = 0; i < serverSet.getNumServers(); i++) {
             sendMessage(message, i);
         }
     }
 
     private short getLeader() {
-        return 1;
+        return (short) (preparedFor%serverSet.getNumServers());
     }
 
     private void sendToLeader(Serializable message) {
@@ -193,14 +267,20 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
 
     private void sendMessage(Serializable message, short serverId) {
         try {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);
-            objectOutputStream.writeObject(message);
-            objectOutputStream.flush();
-            ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
-            channel.send(payload, serverSet.getServer(serverId));
+            if(serverId == id) { //Sending to myself.
+                messageReceived(null, message);
+            } else {
+                ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);
+                objectOutputStream.writeObject(message);
+                objectOutputStream.flush();
+                ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
+                channel.send(payload, serverSet.getServer(serverId));
+            }
         } catch (IOException e) {
             System.out.println("Failed to send message");
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (Exception e) {
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
         }
     }
