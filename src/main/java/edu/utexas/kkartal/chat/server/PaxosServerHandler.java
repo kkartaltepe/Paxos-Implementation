@@ -180,11 +180,10 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
     public void handlePropose(PaxosMessage proposal) {
         if(preparedFor > proposal.getProposeNum())
             return;
-        while(accepted.size() <= proposal.getInstanceNum()){
-            System.out.println("Adding to chosen.");
-            accepted.add(null);
-            chosen.add(null);
-        }
+
+        ensureSize(accepted, proposal.getInstanceNum()+1);
+        ensureSize(chosen, proposal.getInstanceNum()+1);
+
         accepted.set(proposal.getInstanceNum(), (ChatMessage) proposal.getValue());
         //Send accept to all
         sendAllMessage(new DefaultPaxosMessage(proposal.getInstanceNum(),
@@ -196,9 +195,8 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
 
     @Override
     public void handleAccepted(PaxosMessage proposal) {
-        while(chosen.size() < proposal.getInstanceNum()+1){   //Prevent NPE from accept before proposal.
-            chosen.add(null);
-        }
+        ensureSize(chosen, proposal.getInstanceNum()+1); //Prevent NPE
+
         if(chosen.get(proposal.getInstanceNum()) != null)
             return; //Something has already been chosen so I dont care anymore.
 
@@ -220,7 +218,6 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             onChosen(proposal);
         }
 
-        //TODO: Maybe handle different proposal numbers happeneing "simulataneously"
     }
 
     /**
