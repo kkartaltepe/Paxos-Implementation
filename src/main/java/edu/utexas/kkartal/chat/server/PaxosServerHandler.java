@@ -74,7 +74,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                     System.out.println("Trying to become leader with " + (preparedFor+turnsTillLeader));
                     sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE, preparedFor+turnsTillLeader));
                 }
-                if(nodeIsLeader()) //Send everyone heartbeats if you are leader.
+                if(nodeIsLeader()) //Send everyone(server clients) heartbeats if you are leader.
                     sendHeartBeat();
             }
         }, 0, 2, TimeUnit.SECONDS);
@@ -92,7 +92,10 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
     }
 
     private void sendHeartBeat() {
-            sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PING, preparedFor));
+        DefaultPaxosMessage pingMessage = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PING, preparedFor);
+        DefaultPaxosMessage clientPing = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PING, getLeader());
+        sendAllMessage(pingMessage);
+        sendToClients(clientPing);
     }
 
     public void exceptionCaught(IoSession ioSession, Throwable throwable) throws Exception {
@@ -297,7 +300,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
     }
 
-    private void sendToClients(ChatMessage message) {
+    private void sendToClients(Serializable message) {
         try {
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             ObjectSerializationOutputStream objectOutputStream = new ObjectSerializationOutputStream(byteArrayOutputStream);

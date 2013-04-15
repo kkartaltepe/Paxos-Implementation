@@ -1,6 +1,7 @@
 package edu.utexas.kkartal.chat.client;
 
 import edu.utexas.kkartal.chat.shared.ChatMessage;
+import edu.utexas.kkartal.paxos.PaxosMessage;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationInputStream;
 import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStream;
 
@@ -25,7 +26,8 @@ import java.util.Scanner;
 public class DefaultClient implements Client {
 
     String serverHost = "localhost";
-    int serverPort = 2777;
+    int serverPort;
+    short sendTo = 0; //The server to send to. (the server client thinks is leader)
 
     boolean running = true;
     DatagramChannel channel;
@@ -40,6 +42,7 @@ public class DefaultClient implements Client {
 
     public void run(String[] args) {
         try {
+            serverPort = Integer.parseInt(args[0]);
             channel = DatagramChannel.open();
             channel.configureBlocking(false);
             socket = channel.socket();
@@ -70,7 +73,6 @@ public class DefaultClient implements Client {
             e.printStackTrace();
         }
         //Do input handling
-        sendMessage(new ChatMessage("me", "some text", new Date()));
         while(running) {
             handleInput();
         }
@@ -80,18 +82,21 @@ public class DefaultClient implements Client {
 
     private void handleInput() {
         String input = new Scanner(System.in).nextLine();
-        if(input.equals("num"))
-            System.out.println(chatLog.size());
         if(!input.isEmpty())
             sendMessage(new ChatMessage("Client", input, new Date()));
     }
 
     private void onMessageReceived(Object receivedMessage) {
-        if(!(receivedMessage instanceof ChatMessage))
-            System.out.println("Recieved non chat message of type " + receivedMessage.getClass().getSimpleName());
-        ChatMessage message = (ChatMessage)receivedMessage;
-        System.out.println("[" + message.getTime() + "]" + message.getName() + " : " + message.getBody());
-        chatLog.add(message);
+        if(receivedMessage instanceof PaxosMessage) { //Ping from current leader
+            sendTo = ((PaxosMessage<Short>) receivedMessage).getValue();
+        }
+//        else
+//            System.out.println("Recieved non chat message of type " + receivedMessage.getClass().getSimpleName());
+        else {
+            ChatMessage message = (ChatMessage)receivedMessage;
+            System.out.println("[" + message.getTime() + "]" + message.getName() + " : " + message.getBody());
+            chatLog.add(message);
+        }
     }
 
 
