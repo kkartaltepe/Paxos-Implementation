@@ -107,7 +107,7 @@ public class DefaultClient implements Client {
             objectOutputStream.writeObject(m);
             objectOutputStream.flush();
             ByteBuffer payload = ByteBuffer.wrap(byteArrayOutputStream.toByteArray());
-            channel.send(payload, new InetSocketAddress(serverHost, serverPort));
+            channel.send(payload, new InetSocketAddress(serverHost, serverPort+sendTo));
         } catch (IOException e) {
             System.out.println("Failed to send message");
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.

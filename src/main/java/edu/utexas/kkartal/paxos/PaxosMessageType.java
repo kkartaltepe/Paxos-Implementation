@@ -8,5 +8,5 @@ package edu.utexas.kkartal.paxos;
  * To change this template use File | Settings | File Templates.
  */
 public enum PaxosMessageType {
-    PREPARE,PREPARE_RESP,PROPOSE, PING, ACCEPTED
+    PREPARE,PREPARE_RESP,PROPOSE, PING, RECOVERY, RECOVERY_RESP, ACCEPTED
 }

@@ -1,3 +1,5 @@
+Slip days used (this project) 3, slip days used (total): 3
+
 mvn package
 java -cp target/paxos-1.0-jar-with-dependencies.jar edu.utexas.kkartal.chat.client.DefaultClient [startPort] [numServers]
 java -cp target/paxos-1.0-jar-with-dependencies.jar edu.utexas.kkartal.chat.server.DefaultNode [serverId] [startPort] [numServers]

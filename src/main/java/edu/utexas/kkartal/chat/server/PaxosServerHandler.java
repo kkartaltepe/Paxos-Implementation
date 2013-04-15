@@ -118,12 +118,19 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                 case PREPARE_RESP:
                     handlePrepareResponse(paxosMessage);
                     break;
+                case RECOVERY:
+                    handleRecovery(paxosMessage);
+                    break;
+                case RECOVERY_RESP:
+                    handleRecoveryResponse(paxosMessage);
+                    break;
                 case PING:
                     if(paxosMessage.getProposerId() == getLeader()) //Leaders HeartBeat
                         leaderLastHeard = new Date();
                     else if(((Integer)paxosMessage.getValue()) > preparedFor) { //I came alive and the leader is not who I thought.
                         preparedFor = ((Integer)paxosMessage.getValue());
                         handlePrepare(preparedFor, getLeader());
+                        sendRecovery();
                     }
                     break;
                 default:
@@ -142,6 +149,27 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             }
         } else {
             throw new Exception("Unknown message type:" + message.getClass().getSimpleName());
+        }
+    }
+
+    private void sendRecovery() {
+        sendToLeader(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.RECOVERY, null));
+    }
+
+    private void handleRecovery(PaxosMessage recoveryRequest) {
+        PaxosMessage recoveryResponse = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.RECOVERY_RESP, chosen);
+        sendMessage(recoveryResponse, recoveryRequest.getProposerId());
+    }
+
+    private void handleRecoveryResponse(PaxosMessage recoveryResponse) {
+        ArrayList<ChatMessage> newChosen = (ArrayList<ChatMessage>) recoveryResponse.getValue();
+        ensureSize(chosen, newChosen.size());
+        for(int i = 0; i < newChosen.size(); i++) {
+            if(chosen.get(i) == null) {
+                chosen.set(i, newChosen.get(i));
+            } else if (!chosen.get(i).equals(newChosen.get(i))) {
+                System.out.println("We have an error, two servers conflict in their chosen values.");
+            }
         }
     }
 
