@@ -10,7 +10,6 @@ import org.apache.mina.filter.codec.serialization.ObjectSerializationOutputStrea
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
@@ -31,13 +30,14 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
     private short id;
     private int nextPropose = 1;
     private int nextInstance = 0;
+    private ArrayList<Short> prepareResponseFrom = new ArrayList<Short>();
 
     //Acceptor info
     private int preparedFor = 1;
-    private ArrayList<ChatMessage> accepted = new ArrayList<ChatMessage>(10);
+    private ArrayList<ChatMessage> accepted = new ArrayList<ChatMessage>();
 
     //Learner info
-    private ArrayList<ChatMessage> chosen = new ArrayList<ChatMessage>(10);
+    private ArrayList<ChatMessage> chosen = new ArrayList<ChatMessage>();
     private int lastSent = -1; //Havnt sent anything
     private Map<Integer, List<PaxosMessage>> proposalAcceptedVotes = new HashMap<Integer, List<PaxosMessage>>();
 
@@ -70,14 +70,25 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                 int remainder = preparedFor%servers.getNumServers();
                 int turnsTillLeader =  id < remainder ? id-remainder+serverSet.getNumServers() : id-remainder;
                 timeForMeToBeLeader.add(Calendar.SECOND, -6*turnsTillLeader);
-                if(timeForMeToBeLeader.getTime().after(leaderLastHeard) && id != getLeader()) {  //Enough time that I should be leader now.
+                if(timeForMeToBeLeader.getTime().after(leaderLastHeard) && !nodeIsLeader()) {  //Enough time that I should be leader now and am not.
                     System.out.println("Trying to become leader with " + (preparedFor+turnsTillLeader));
                     sendAllMessage(new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE, preparedFor+turnsTillLeader));
                 }
-                if(id == getLeader()) //Send everyone heartbeats
+                if(nodeIsLeader()) //Send everyone heartbeats if you are leader.
                     sendHeartBeat();
             }
         }, 0, 2, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Adds nulls to the end of list until it is at least size.
+     * @param list
+     * @param size
+     */
+    private void ensureSize(List list, int size) {
+        while (list.size() < size) {
+            list.add(null);
+        }
     }
 
     private void sendHeartBeat() {
@@ -107,16 +118,16 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
                 case PING:
                     if(paxosMessage.getProposerId() == getLeader()) //Leaders HeartBeat
                         leaderLastHeard = new Date();
-                    else if(((Integer)paxosMessage.getValue()) > preparedFor) { //A new leader is informing everyone of his existance
-                        System.out.println("Ping informed me of new leader " + paxosMessage.getValue());
+                    else if(((Integer)paxosMessage.getValue()) > preparedFor) { //I came alive and the leader is not who I thought.
                         preparedFor = ((Integer)paxosMessage.getValue());
+                        handlePrepare(preparedFor, getLeader());
                     }
                     break;
                 default:
                     throw new Exception("received PaxosMessage of unknown type" + paxosMessage.getType().name());
             }
         } else if(message instanceof ChatMessage) { //Some client sent or some server forwarded.
-            if(id == getLeader()){
+            if(nodeIsLeader()){
                 propose(new DefaultPaxosMessage(nextInstance,
                         nextPropose,
                         id,
@@ -131,6 +142,10 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
     }
 
+    private boolean nodeIsLeader() {
+        return id == getLeader() && prepareResponseFrom.size() >= serverSet.getQuorumSize();
+    }
+
 
     @Override
     public void handlePrepare(int prepareNum, short proposerId) {
@@ -139,15 +154,15 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         }
         preparedFor = prepareNum;
         nextPropose = preparedFor;
+        prepareResponseFrom.clear();
         PaxosMessage message = new DefaultPaxosMessage(-1, -1, id, PaxosMessageType.PREPARE_RESP, accepted);
         sendToLeader(message);
     }
 
     @Override
     public void handlePrepareResponse(PaxosMessage response) {
-        // This is a list of chat messages that the acceptor has accepted for a given instance of Paxos.
-        //if((response.getValue() instanceof ArrayList))
-        //    throw new RuntimeException("Bad PrepareResponse data, was expecting list but got " + response.getValue().getClass());
+        if(!prepareResponseFrom.contains(response.getProposerId()))
+            prepareResponseFrom.add(response.getProposerId());          //This is a new server accepted our prepare request.
 
         List<ChatMessage> remoteAccepted = (List<ChatMessage>) response.getValue();
         for(int i = 0; i < remoteAccepted.size(); i++) {
@@ -201,7 +216,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
             proposalAcceptedVotes.put(proposal.getInstanceNum(), acceptedVotes);
         }
         //handle being chosen
-        if(proposalAcceptedVotes.get(proposal.getInstanceNum()).size() > serverSet.getNumServers()/2) {
+        if(proposalAcceptedVotes.get(proposal.getInstanceNum()).size() >= serverSet.getQuorumSize()) {
             onChosen(proposal);
         }
 
@@ -220,7 +235,7 @@ public class PaxosServerHandler extends IoHandlerAdapter implements Acceptor<Pax
         while(lastSent+1 < chosen.size()) {
             ChatMessage toSend = chosen.get(lastSent+1);
             if(toSend != null) {
-                if(id == getLeader())
+                if(nodeIsLeader())
                     sendToClients(toSend);
                 lastSent++;
             } else {

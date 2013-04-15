@@ -39,4 +39,8 @@ public class ServerSet {
     int getNumServers() {
         return numServers;
     }
+
+    public int getQuorumSize() {
+        return (numServers / 2) + 1;
+    }
 }
