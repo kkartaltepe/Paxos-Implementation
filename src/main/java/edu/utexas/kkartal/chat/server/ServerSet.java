@@ -26,7 +26,7 @@ public class ServerSet {
      * @param serverId
      * @return
      */
-    InetSocketAddress getServer(int serverId) {
+    public InetSocketAddress getServer(int serverId) {
         if(serverId > numServers || serverId < 0)
             throw new RuntimeException("Id out of range, " + serverId + " not in [" + 0 + "," + (numServers-1) +"]");
         return new InetSocketAddress(hostname, startPort+serverId);
@@ -36,7 +36,7 @@ public class ServerSet {
      * Get the number of servers in the set.
      * @return
      */
-    int getNumServers() {
+    public int getNumServers() {
         return numServers;
     }
 
